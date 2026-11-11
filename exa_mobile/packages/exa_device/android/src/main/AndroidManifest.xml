@@ -1,0 +1,44 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The permissions behind this plugin (WRITE_SECURE_SETTINGS, READ_LOGS,
+         DUMP, PACKAGE_USAGE_STATS, ACCESS_NOTIFICATION_POLICY and the runtime
+         ones) are declared in the APP manifest, next to every other
+         permission Exa asks for, with the reasons. -->
+
+    <!-- The push watchdog (PushHealth.kt) checks that the active network is
+         validated before it blames Play services for a dead socket. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <application>
+        <!-- The device-admin component that `dpm set-device-owner` names. Its
+             policy file deliberately omits wipe-data: a policy that is not
+             declared cannot be invoked, so a factory reset is not something
+             Exa can do even by mistake. -->
+        <receiver
+            android:name=".ExaDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin"/>
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Exa's eyes and hands on other apps. Enabled by Exa itself once it
+             holds WRITE_SECURE_SETTINGS (Settings > Device control), so the
+             user never has to find the Accessibility page. -->
+        <service
+            android:name=".ExaAccessibilityService"
+            android:exported="false"
+            android:label="Exa"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config"/>
+        </service>
+    </application>
+</manifest>

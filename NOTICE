@@ -1,0 +1,40 @@
+Exa the Executive Assistant
+Copyright (C) 2025-2026 BrightForge Technologies Limited
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, version 3. See the LICENSE file. Commercial licences are
+available from BrightForge Technologies Limited: info@brightforgett.com
+
+"Exa the Executive Assistant" and "BrightForge" are names and marks of
+BrightForge Technologies Limited. The AGPL licence covers the code; it does
+not grant permission to use these names or logos to promote a modified
+version or a hosted service. Please rename forks you distribute.
+
+Exa the Executive Assistant is not affiliated with Exa Labs, Inc. (exa.ai).
+
+-------------------------------------------------------------------------------
+Third-party components
+-------------------------------------------------------------------------------
+
+Exa depends on open-source Dart and Flutter packages, listed with exact
+versions in exa_mobile/pubspec.lock. Each is used under its own licence
+(mostly BSD-3-Clause, MIT and Apache-2.0). Notable exceptions and notes:
+
+- enough_mail - Mozilla Public License 2.0. Its source is available at
+  https://github.com/Enough-Software/enough_mail
+- pdfrx - MIT; bundles PDFium (BSD-3-Clause / Apache-2.0).
+- Fonts (Fraunces, Plus Jakarta Sans) are fetched at runtime by google_fonts
+  and are licensed under the SIL Open Font License 1.1.
+
+The licence text of every bundled package can be viewed inside the app.
+
+On-device AI models are NOT included in this repository or in Exa builds.
+They are downloaded by the user, and are subject to their own terms:
+
+- Gemma 3 / Gemma 3n - Gemma Terms of Use, https://ai.google.dev/gemma/terms
+- Qwen2.5 - Apache License 2.0
+
+Remote AI providers (Anthropic, DeepSeek, or any OpenAI-compatible endpoint)
+are used under the user's own account and are subject to that provider's
+terms.

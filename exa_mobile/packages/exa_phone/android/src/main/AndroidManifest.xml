@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The runtime permissions this plugin needs (SEND_SMS, CALL_PHONE,
+         READ_CONTACTS, POST_NOTIFICATIONS) are declared in the APP manifest,
+         next to every other permission Exa asks for, with the reasons. -->
+</manifest>

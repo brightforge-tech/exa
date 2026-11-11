@@ -1,0 +1,25 @@
+name: exa_device
+description: >-
+  Exa's device-control plugin: Device Owner administration, and (in later
+  stages) apps, settings, screen, notifications, telephony, power and
+  diagnostics. A real (local) Flutter plugin rather than a MethodChannel in
+  MainActivity so that it is registered in EVERY FlutterEngine - including the
+  overlay engine and the WorkManager/alarm isolates that run scheduled jobs,
+  which never see the activity's own channels.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.brightforge.exa.device
+        pluginClass: ExaDevicePlugin

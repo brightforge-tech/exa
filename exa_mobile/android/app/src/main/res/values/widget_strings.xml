@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="briefing_widget_label">Exa briefing</string>
+    <string name="briefing_widget_description">Today\'s events, tasks and reminders, and what is next.</string>
+</resources>

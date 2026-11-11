@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exa's accessibility service: how it reads and drives other apps.
+     canRetrieveWindowContent reads the view tree; canPerformGestures taps,
+     swipes and types; canTakeScreenshot (Android 11+) grabs a frame with no
+     MediaProjection consent dialog. flagRetrieveInteractiveWindows lets it
+     see every window, not just the focused one. It watches all packages
+     because Exa's whole point is working with any app. -->
+<accessibility-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds|flagRequestFilterKeyEvents"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:canTakeScreenshot="true"
+    android:notificationTimeout="100"
+    android:description="@string/exa_accessibility_description"/>

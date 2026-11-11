@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ideas and questions
+    url: https://github.com/brightforge-tech/exa/discussions
+    about: Suggest features or ask how to do something.
+  - name: Report a security vulnerability
+    url: https://github.com/brightforge-tech/exa/security/advisories/new
+    about: Please report security problems privately.
+  - name: Business setup, support and commercial licences
+    url: https://brightforgett.com
+    about: Talk to BrightForge Technologies (info@brightforgett.com).

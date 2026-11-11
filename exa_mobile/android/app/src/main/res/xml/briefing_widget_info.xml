@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exa briefing home-screen widget. BriefingWidget schedules its own next
+     redraw (countdowns, midnight, the next event or reminder) and redraws
+     when the database changes, so updatePeriodMillis is only a backstop. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/briefing_widget_description"
+    android:initialLayout="@layout/widget_briefing"
+    android:minWidth="250dp"
+    android:minHeight="400dp"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="180dp"
+    android:previewLayout="@layout/widget_briefing"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="5"
+    android:updatePeriodMillis="1800000"
+    android:widgetCategory="home_screen"/>

@@ -1,0 +1,66 @@
+group 'com.brightforge.exa.phone'
+version '0.1.0'
+
+buildscript {
+    ext.kotlin_version = '2.3.20'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        // Resolved but not the versions that run: the host app's AGP 9 / KGP
+        // already own the classpath. Kept for standalone evaluation of this
+        // module only.
+        classpath 'com.android.tools.build:gradle:8.9.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+def agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0] as int
+def builtInKotlinEnabled = project.findProperty('android.builtInKotlin')?.toString() == 'true'
+
+apply plugin: 'com.android.library'
+// AGP 9+ applies the Kotlin Android plugin itself only when
+// android.builtInKotlin=true; the host app pins it to false (see
+// android/gradle.properties), so apply it here like every other plugin does.
+if (agpMajor < 9 || !builtInKotlinEnabled) {
+    apply plugin: 'kotlin-android'
+}
+
+android {
+    namespace 'com.brightforge.exa.phone'
+    // Matches the app: flutter_plugin_android_lifecycle and friends require
+    // SDK 36 consumers, and the app's own build.gradle.kts pins 36.
+    compileSdk 36
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        minSdk 26
+    }
+
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}

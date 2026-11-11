@@ -1,0 +1,315 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- AI requests to api.anthropic.com -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Reminder notifications (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Re-register scheduled reminders after a device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Exact-time reminders and daily briefs (fire even in Doze) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <!-- Let the user exempt Exa from battery optimization so background
+         jobs aren't frozen -->
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Voice input in the assistant chat -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Exa bubble: floating assistant drawn over other apps -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- Screen snippets: persistent MediaProjection capture session -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <!-- Device calendar: import events, and (with approval) add events -->
+    <uses-permission android:name="android.permission.READ_CALENDAR"/>
+    <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
+
+    <!-- Phone access (packages/exa_phone). Each is a runtime permission the
+         user grants from Settings > Phone access; the agent tools behind them
+         (send_sms, place_call, send_whatsapp, find_contact) ask for
+         confirmation on every interactive use and are refused to scheduled
+         runs unless the job was created with an explicit outbound grant. -->
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+
+    <!-- Chat capture. There is no personal WhatsApp API: the Business Cloud
+         API only receives mail sent to a registered business number, and the
+         on-device message store is encrypted with a key that needs root. The
+         notification listener is the only route, and the same MessagingStyle
+         API serves Signal, Telegram and SMS unchanged.
+
+         This is a device-wide grant - the service is offered every
+         notification on the phone, including OTPs and banking alerts - so
+         ExaNotificationListener drops anything outside the user's chosen
+         package allowlist as its first statement, before reading a single
+         field. The grant itself is made by hand in Settings > Special app
+         access > Notification access; it cannot be requested at runtime. -->
+    <uses-permission
+        android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>
+
+    <!-- Device control (packages/exa_device). Exa v3 runs as the phone's
+         Device Owner. The four below are signature/development permissions
+         that neither the user nor the app can grant; each is granted once
+         over adb by tools/provision_device.ps1 and survives reboots and in-place
+         updates (only an uninstall loses it). Lint flags them as reserved
+         for system apps, which is exactly the standing Exa is taking. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions"/>
+    <uses-permission
+        android:name="android.permission.READ_LOGS"
+        tools:ignore="ProtectedPermissions"/>
+    <uses-permission
+        android:name="android.permission.DUMP"
+        tools:ignore="ProtectedPermissions"/>
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"/>
+    <!-- Do Not Disturb control. A special-access switch, granted from the
+         DND access page or `cmd notification allow_dnd`. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_NOTIFICATION_POLICY"/>
+
+    <!-- Exa v3 manages every app on the phone: it lists them for chat
+         capture, opens them, reads and drives their screens, and (later)
+         installs and hides them. All of that needs to resolve arbitrary
+         packages, which Android 11+ hides behind package-visibility unless
+         each is declared. An OS-level device manager legitimately needs to
+         see them all, so it declares QUERY_ALL_PACKAGES rather than an
+         ever-growing <queries> list that silently drops the next app.
+         (This app is not distributed on Google Play, where the permission
+         is policy-restricted.) -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"/>
+
+    <!-- restoreAnyVersion: Android normally refuses to restore a backup taken
+         by a higher versionCode than the installed build. Sideloaded dev
+         builds move between version numbers freely, which silently blocks
+         restores after a reinstall; this permits them regardless of version. -->
+    <!-- ExaApplication (not the default ${applicationName}) supplies
+         WorkManager's configuration. WorkManager's androidx.startup auto-init
+         does not run in the R8 release build, and workmanager_android calls
+         WorkManager.getInstance() from a coroutine during plugin registration,
+         so the resulting exception killed the process on launch rather than
+         degrading. See ExaApplication for the full account. -->
+    <application
+        android:label="Exa"
+        android:name=".ExaApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:restoreAnyVersion="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- "Reference this to Exa": a forwarded chat message, an email
+                 body shared from a mail client, or a WhatsApp chat export
+                 (.txt on its own, .zip when exported with media). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+                <data android:mimeType="application/zip"/>
+                <data android:mimeType="application/octet-stream"/>
+            </intent-filter>
+
+            <!-- Puts "Exa" in the text-selection menu. Works in Gmail, the
+                 browser and documents; it does NOT appear for WhatsApp
+                 message bubbles, which are selected whole rather than as
+                 text - hence the SEND filter above and the notification
+                 listener below. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Reads messages out of chat-app notifications; see the permission
+             comment above for why this is the only route and what it costs.
+             android:exported is required to be true so the system can bind
+             it, and the BIND_ permission is what stops anything else doing
+             so. -->
+        <service
+            android:name=".messaging.ExaNotificationListener"
+            android:exported="true"
+            android:label="Exa chat capture"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action
+                    android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
+
+        <!-- Exa bubble: foreground service hosting the floating bubble
+             (specialUse) and the persistent screen-capture session
+             (mediaProjection). The projection type is only activated after
+             per-session user consent. -->
+        <service
+            android:name=".overlay.ExaOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|mediaProjection">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Floating assistant bubble drawn over other apps"/>
+        </service>
+        <!-- Runs scheduled jobs for as long as they take. A background
+             worker is stopped after about ten minutes, and a job that calls
+             a model on the user's own hardware needs longer than that.
+             Started from the exact-alarm callback; see ExaJobService. -->
+        <service
+            android:name=".jobs.ExaJobService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs the user's scheduled assistant jobs, which call a model on their own hardware and take longer than a background worker is allowed"/>
+        </service>
+        <!-- Translucent trampoline that shows the system screen-capture
+             consent dialog and forwards the result to the service -->
+        <activity
+            android:name=".overlay.ProjectionConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.brightforge.exa.consent"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+        <!-- Restore the bubble after reboot / app update (specialUse only:
+             Android 15 forbids starting a mediaProjection FGS from boot, and
+             capture consent is per-session anyway) -->
+        <receiver
+            android:name=".overlay.OverlayBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- Home-screen briefing widget (widget/BriefingWidgetProvider). The
+             time broadcasts are on the implicit-broadcast exemption list, so
+             a changed clock or timezone redraws it straight away. -->
+        <receiver
+            android:name=".widget.BriefingWidgetProvider"
+            android:exported="false"
+            android:label="@string/briefing_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/briefing_widget_info"/>
+        </receiver>
+
+        <!-- flutter_local_notifications: scheduled notification delivery and
+             rescheduling after reboot -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- android_alarm_manager_plus: the plugin does NOT merge these
+             itself; without them AndroidAlarmManager.initialize() throws
+             ("Component ... does not exist") and the exact-time job/brief
+             alarm layer silently never runs. -->
+        <service
+            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false"/>
+        <receiver
+            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmBroadcastReceiver"
+            android:exported="false"/>
+        <receiver
+            android:name="dev.fluttercommunity.plus.androidalarmmanager.RebootBroadcastReceiver"
+            android:enabled="false"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- On-demand WorkManager initialization: because ExaApplication
+             implements Configuration.Provider, the automatic androidx.startup
+             entry must be withdrawn or the two paths race and lint fails the
+             release build. Only WorkManager's meta-data is removed - the
+             provider itself stays, since emoji2, ProcessLifecycle and
+             profileinstaller initialize through it too. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Required on Android 11+ for speech_to_text to find the
+             on-device recognition service -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- Package visibility for the WhatsApp hand-off (send_whatsapp
+             opens the chat with the message typed in; "is it installed?"
+             has to be answerable on Android 11+). -->
+        <package android:name="com.whatsapp"/>
+        <package android:name="com.whatsapp.w4b"/>
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+    </queries>
+</manifest>

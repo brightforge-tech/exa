@@ -1,0 +1,98 @@
+name: exa_mobile
+description: "Exa the Executive Assistant - a local-first agentic AI assistant for Android, by BrightForge Technologies."
+publish_to: 'none'
+version: 0.1.0+4
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Navigation
+  go_router: ^14.6.0
+
+  # Local database
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.5
+
+  # AI client (Claude Messages API over HTTP)
+  http: ^1.2.2
+
+  # Notifications and scheduling
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
+  flutter_timezone: ^5.1.0
+  workmanager: ^0.9.0
+  # Exact-time execution for briefs (fires even in Doze)
+  android_alarm_manager_plus: ^4.0.4
+  # Request battery-optimization exemption + exact-alarm permission
+  permission_handler: ^11.3.1
+
+  # Secure in-app browser. The 6.2 beta is required for current Android
+  # Gradle Plugin compatibility (6.1.x uses a removed proguard API).
+  flutter_inappwebview: ^6.2.0-beta.3
+
+  # Data export
+  share_plus: ^10.1.2
+
+  # Email over IMAP (read) / SMTP (send)
+  enough_mail: ^2.1.6
+  # "Sign in with Google" for Gmail accounts (OAuth token -> IMAP/SMTP
+  # XOAUTH2; no password ever stored)
+  google_sign_in: ^6.3.0
+
+  # Voice input
+  speech_to_text: ^7.0.0
+
+  # Device calendar import
+  device_calendar: ^4.3.3
+
+  # Security
+  flutter_secure_storage: ^9.2.2
+
+  # Utilities
+  uuid: ^4.5.1
+  intl: ^0.19.0
+  # Idempotency keys (sha256 over canonical tool arguments)
+  crypto: ^3.0.3
+  # "Is this overdue / due today" reads the wall clock, which makes those
+  # screens untestable at some times of day. clock.now() is the real clock
+  # unless a test wraps the call in withClock().
+  clock: ^1.1.2
+
+  # Design: BrightForge type pairing (Sora display + Manrope body)
+  google_fonts: ^6.2.1
+  file_picker: 11.0.0
+  docx_to_text: ^1.0.1
+  excel: ^4.0.6
+  flutter_gemma: ^0.13.6
+  # Phone access (SMS, calls, WhatsApp hand-off, contacts). A local plugin so
+  # its channel is registered in every engine, including the background
+  # isolates that run scheduled jobs - see packages/exa_phone.
+  exa_phone:
+    path: packages/exa_phone
+  # Device control (Device Owner admin; later apps, settings, screen,
+  # notifications, telephony, power, diagnostics). A local plugin for the
+  # same reason as exa_phone - see packages/exa_device.
+  exa_device:
+    path: packages/exa_device
+  pdfrx: ^2.4.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.3.4
+  # Lets tests point path_provider at a temp directory so file-storing
+  # tools can be exercised for real.
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,79 @@
+# Repo-wide ignores for exa_v2.
+#
+# exa_mobile/ and exa_mobile/android/ carry Flutter's own generated
+# .gitignore files. Those anchor their build rules to their own directory
+# (`/build/`), which misses the Gradle build dirs nested deeper -
+# android/build/ and packages/*/android/build/ - so the rules here are
+# deliberately unanchored and match at any depth.
+
+# ---------------------------------------------------------------- secrets --
+# Both of these exist in android/ right now. local.properties hardcodes this
+# machine's SDK path; key.properties points at the signing keystore and holds
+# its passwords. Neither belongs to anyone but this machine.
+local.properties
+key.properties
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
+
+# ------------------------------------------------------------ build output --
+# Unanchored on purpose - see the note at the top.
+build/
+.gradle/
+.dart_tool/
+.cxx/
+captures/
+/coverage/
+*.class
+*.log
+
+# Release binaries. dist/ held a 239 MB APK; a build artifact that large is
+# rebuilt in 75s and should be attached to a release, not carried in history.
+*.apk
+*.aab
+*.aar
+*.apks
+
+# Flutter regenerates these from pubspec.yaml on every build.
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+migrate_working_dir/
+
+# Deliberately NOT ignored: pubspec.lock. exa_mobile is an application, not a
+# published package, so the locked versions are part of what makes a build
+# reproducible.
+
+# Crash-symbolication and obfuscation maps from --split-debug-info / --obfuscate.
+app.*.symbols
+app.*.map.json
+
+# ------------------------------------------------------------------- IDE --
+*.iml
+*.ipr
+*.iws
+.idea/
+# .vscode/ is intentionally left tracked: the launch configs and tasks in it
+# are shared setup, which is also why Flutter's own template leaves it out.
+
+# -------------------------------------------------------------------- OS --
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# --------------------------------------------------------- internal docs --
+# Design notes and drafts kept out of the public repository.
+/*.docx
+/*.pdf
+exa_mobile_app_development_guide*.md
+.github/modernize/
+/dist/
+tools/brand/fonts/

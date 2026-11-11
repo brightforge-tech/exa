@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Exa isn't working as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security problems:** please don't file them here — see SECURITY.md.
+        **Never paste API keys, passwords, or private messages** into an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Settings → ...
+        2. Ask Exa "..."
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Exa version or commit
+      placeholder: "0.1.0 (Settings → About)"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: "Galaxy S25, Android 16"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI provider
+      options:
+        - Claude
+        - DeepSeek
+        - Local server (Ollama / LM Studio / other)
+        - On-device model
+        - Not relevant
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Settings → Tool activity can help. Remove anything private first.

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Policies Exa's admin component may use. Most Device Owner powers need no
+     policy at all; the ones listed are the legacy DeviceAdmin policies that a
+     few calls still check (lockNow needs force-lock, setCameraDisabled needs
+     disable-camera). wipe-data is intentionally absent. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock/>
+        <disable-camera/>
+        <disable-keyguard-features/>
+    </uses-policies>
+</device-admin>
