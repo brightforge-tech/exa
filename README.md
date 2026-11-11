@@ -184,6 +184,6 @@ Exa Labs (exa.ai). Third-party notices are in [NOTICE](NOTICE).
 
 **Shaping Innovation, Forging the Future**
 
-[brightforgett.com](https://brightforgett.com) · [info@brightforgett.com](mailto:info@brightforgett.com) · Trinidad and Tobago
+[brightforgett.com](https://brightforgett.com) · [info@brightforgett.com](mailto:info@brightforgett.com)
 
 </div>
