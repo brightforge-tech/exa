@@ -1,0 +1,23 @@
+name: exa_voice
+description: >-
+  Exa's voice plumbing: the over-the-lock-screen voice session, the "Hey Exa"
+  wake word, and spoken follow-ups about what Exa added. A local plugin, like
+  exa_phone, so it is registered in every FlutterEngine - the background job
+  isolates included, which is where most follow-ups start.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=3.3.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.brightforge.exa.voice
+        pluginClass: ExaVoicePlugin

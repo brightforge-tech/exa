@@ -58,6 +58,31 @@ class MessageChannels {
 
   static bool isKnown(String channel) => packageByChannel.containsKey(channel);
 
+  /// The channel key for what a model or a person calls an app: the key
+  /// itself, its display name ("Microsoft Teams"), the short name
+  /// ("Teams") or the package. Null when it names no known app.
+  static String? normalize(String raw) {
+    final wanted = raw.trim().toLowerCase();
+    if (wanted.isEmpty) return null;
+    final compact = wanted.replaceAll(RegExp(r'[\s_-]+'), '');
+    for (final channel in all) {
+      if (channel == wanted || channel.replaceAll('_', '') == compact) {
+        return channel;
+      }
+      if (packageByChannel[channel] == wanted) return channel;
+      final display = displayNames[channel]!.toLowerCase();
+      if (display.replaceAll(RegExp(r'[\s_-]+'), '') == compact) {
+        return channel;
+      }
+    }
+    return switch (compact) {
+      'microsoftteams' || 'msteams' => teams,
+      'text' || 'texts' || 'messages' || 'googlemessages' => sms,
+      'wa' => whatsapp,
+      _ => null,
+    };
+  }
+
   static String? channelForPackage(String package) {
     for (final entry in packageByChannel.entries) {
       if (entry.value == package) return entry.key;

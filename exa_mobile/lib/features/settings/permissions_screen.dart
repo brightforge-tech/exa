@@ -21,6 +21,7 @@ const _permissionLabels = <String, String>{
   'jobs.create': 'Create and manage scheduled jobs',
   'jobs.run': 'Run scheduled jobs on demand',
   'browser.read_context': 'Read pages you shared from the browser',
+  'web.search': 'Search the internet and read public web pages',
   'email.read': 'Read and fetch emails (added or via mail accounts)',
   'email.write': 'Mark added emails digested / delete them',
   'email.send': 'Send email through your mail account',

@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- The "Hey Exa" listener is a microphone foreground service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <!-- Lets a follow-up light the screen and open the voice session over
+         the lock screen, the way an alarm does. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Lights the screen for a voice session that starts by itself. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <application>
+        <service
+            android:name="com.brightforge.exa.voice.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"/>
+    </application>
+</manifest>

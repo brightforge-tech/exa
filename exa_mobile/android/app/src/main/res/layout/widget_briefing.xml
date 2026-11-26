@@ -424,16 +424,31 @@
             android:id="@+id/tab_all"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.1"
+            android:layout_weight="1"
             android:background="@drawable/widget_tab_selected"
             android:ellipsize="end"
             android:gravity="center"
             android:maxLines="1"
             android:paddingTop="8dp"
             android:paddingBottom="8dp"
-            android:text="All Glance"
+            android:text="Glance"
             android:textColor="#FFF2EFE9"
-            android:textSize="12sp"/>
+            android:textSize="11sp"/>
+
+        <TextView
+            android:id="@+id/tab_planned"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="1"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="Plan"
+            android:textColor="#FF8E9AA0"
+            android:textSize="11sp"/>
 
         <TextView
             android:id="@+id/tab_events"
@@ -448,7 +463,7 @@
             android:paddingBottom="8dp"
             android:text="Events"
             android:textColor="#FF8E9AA0"
-            android:textSize="12sp"/>
+            android:textSize="11sp"/>
 
         <TextView
             android:id="@+id/tab_tasks"
@@ -463,13 +478,13 @@
             android:paddingBottom="8dp"
             android:text="Tasks"
             android:textColor="#FF8E9AA0"
-            android:textSize="12sp"/>
+            android:textSize="11sp"/>
 
         <TextView
             android:id="@+id/tab_nudges"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.1"
+            android:layout_weight="1"
             android:background="@android:color/transparent"
             android:ellipsize="end"
             android:gravity="center"
@@ -478,7 +493,7 @@
             android:paddingBottom="8dp"
             android:text="Nudges"
             android:textColor="#FF8E9AA0"
-            android:textSize="12sp"/>
+            android:textSize="11sp"/>
     </LinearLayout>
 
     <!-- Takes whatever height is left, so the tab lists scroll inside it. -->

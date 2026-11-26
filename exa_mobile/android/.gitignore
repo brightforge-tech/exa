@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# sherpa-onnx library and model, fetched by sherpa.gradle
+/.sherpa/

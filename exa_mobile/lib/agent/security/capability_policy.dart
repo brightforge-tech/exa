@@ -430,6 +430,14 @@ class CapabilityGate {
     'list_records': ToolCapability.read,
     // The user's own address book - theirs, not outside content.
     'find_contact': ToolCapability.read,
+    // The public web. A query leaves the phone, but nothing is sent to a
+    // person and nothing changes; what comes back is labelled outside
+    // content (see ContentTrust.externalContentTools).
+    // A question saved for the user, and settling it: app state only.
+    'flag_for_follow_up': ToolCapability.localWrite,
+    'resolve_follow_up': ToolCapability.localWrite,
+    'web_search': ToolCapability.read,
+    'read_web_page': ToolCapability.read,
   };
 
   /// An unknown tool is assumed to be as dangerous as the strictest class

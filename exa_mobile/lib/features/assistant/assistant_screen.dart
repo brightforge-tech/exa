@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:exa_voice/exa_voice.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,10 @@ import '../../agent/services/tool_labels.dart';
 import '../../data/models/chat_message.dart';
 import '../../services/files/file_service.dart';
 import '../../services/messaging/messaging_bridge.dart';
+import '../../services/voice/speech_output.dart';
+import '../../services/voice/utterance_listener.dart';
+import '../../services/voice/wake_phrase.dart';
+import '../../shared/chat_timestamp.dart';
 import '../../shared/providers.dart';
 import '../../shared/theme/exa_theme.dart';
 import '../../shared/widgets/exa_orb.dart';
@@ -76,6 +81,85 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   /// How long to wait after the last final result before sending.
   static const _voiceSendGrace = Duration(milliseconds: 1200);
 
+  /// Hands-free conversation: listen, send when the speaker stops, read the
+  /// reply aloud, then listen again - until the user ends it, says goodbye,
+  /// or goes quiet. Each turn is an ordinary voice message, so everything
+  /// the voice message already does (silence retries, the send timer)
+  /// applies unchanged.
+  bool _conversationMode = false;
+
+  /// Hears each conversation turn to its real end: the recogniser stops at
+  /// the first short pause, which cut people off mid-sentence.
+  late final UtteranceListener _utterances =
+      UtteranceListener(SpeechToTextPort(_speech));
+
+  /// True while [_utterances] owns the recogniser, so the engine's own
+  /// stop and error callbacks - which it restarts through - are ignored.
+  bool _conversationListening = false;
+
+  /// Phrases that end a conversation instead of being sent to Exa.
+  static final _conversationEnd = RegExp(
+    r"^(ok(ay)?[, ]+)?(stop|stop listening|goodbye|bye|bye exa|good ?night|"
+    r"that'?s all|that is all|end (the )?conversation|thanks?,? that'?s all|"
+    r"never ?mind)[.!]?$",
+    caseSensitive: false,
+  );
+
+  Future<void> _startConversation() async {
+    if (_conversationMode) return;
+    if (!await _ensureSpeechReady()) return;
+    if (_listening) await _stopListening();
+    // The recogniser needs the microphone "Hey Exa" is holding.
+    await const ExaVoice().pauseWakeWord();
+    setState(() => _conversationMode = true);
+    await _conversationTurn();
+  }
+
+  /// Listens for one whole turn, puts it in the composer as it is heard,
+  /// and sends it. Nothing said at all ends the conversation.
+  Future<void> _conversationTurn() async {
+    if (!_conversationMode || !mounted || _conversationListening) return;
+    _speechBase = _inputController.text.trim();
+    _conversationListening = true;
+    setState(() => _listening = true);
+    final heard = await _utterances.listen(onWords: (words) {
+      if (!mounted) return;
+      final text = _withSpeech(words);
+      _inputController.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
+    _conversationListening = false;
+    if (mounted) setState(() => _listening = false);
+    if (!_conversationMode || !mounted) return;
+    if (heard == null) {
+      await _endConversation();
+      return;
+    }
+    await _send();
+  }
+
+  Future<void> _endConversation({String? farewell}) async {
+    if (!_conversationMode && farewell == null) return;
+    _conversationMode = false;
+    _utterances.cancel();
+    if (_listening) await _stopListening();
+    final voice = ref.read(speechOutputProvider);
+    await voice.stop();
+    if (mounted) setState(() {});
+    if (farewell != null) await voice.speak(farewell);
+    await const ExaVoice().resumeWakeWord();
+  }
+
+  /// Reads Exa's reply aloud and, in a conversation, opens the microphone
+  /// again once it has finished speaking.
+  Future<void> _replyAloud(String text) async {
+    await ref.read(speechOutputProvider).speak(text);
+    if (!mounted || !_conversationMode) return;
+    await _conversationTurn();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -83,6 +167,9 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     // notification), reload so any brief a background job posted appears.
     _lifecycle = AppLifecycleListener(
       onResume: () {
+        // The only moment Android lets a microphone service start: bring
+        // "Hey Exa" back if a reboot or the system stopped it.
+        const ExaVoice().ensureWakeWord();
         ref.read(chatControllerProvider.notifier).refresh();
         // Pick up anything that changed while away (e.g. a brief that digested
         // emails, a reminder that fired).
@@ -93,8 +180,11 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     // A share that cold-starts the app is waiting natively before this screen
     // exists, so it is collected once the first frame is up as well as on
     // every resume - sharing into an already-open Exa takes the second path.
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _consumeShared());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _consumeShared();
+      await WakePhrase.resync(const ExaVoice());
+      await const ExaVoice().ensureWakeWord();
+    });
   }
 
   /// Takes whatever the user shared into Exa and puts the question in the
@@ -135,6 +225,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     _wantListening = false;
     _voiceMessageMode = false;
     _voiceSendTimer?.cancel();
+    _conversationMode = false;
+    ref.read(speechOutputProvider).stop();
     _speech.stop();
     _speech.cancel();
     _inputController.dispose();
@@ -155,6 +247,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     _speechReady = await _speech.initialize(
       onStatus: _onSpeechStatus,
       onError: (_) {
+        // The conversation listener restarts the engine itself.
+        if (_conversationListening) return;
         // An error usually just means the session ended oddly (silence, a
         // brief audio-focus loss).
         if (_voiceMessageMode) {
@@ -215,6 +309,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
 
   void _onSpeechStatus(String status) {
     if (status != 'done' && status != 'notListening') return;
+    if (_conversationListening) return;
     // A voice message ends when the speaker stops: send what was heard.
     if (_voiceMessageMode) {
       _finishVoiceMessage();
@@ -292,7 +387,12 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     _voiceSendTimer = null;
     _speech.stop();
     if (mounted) setState(() => _listening = false);
-    if (_inputController.text.trim().isNotEmpty) _send();
+    if (_inputController.text.trim().isNotEmpty) {
+      _send();
+    } else if (_conversationMode) {
+      // Nothing said through every silence retry: the user has walked away.
+      _endConversation();
+    }
   }
 
   /// Reopens the microphone for a voice message that has not heard anything
@@ -351,6 +451,14 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     if (_listening) await _stopListening();
     final text = quickText ?? _inputController.text;
     if (text.trim().isEmpty && _pending.isEmpty) return;
+    if (_conversationMode && _conversationEnd.hasMatch(text.trim())) {
+      _inputController.clear();
+      _speechBase = '';
+      await _endConversation(farewell: 'Okay. Talk soon.');
+      return;
+    }
+    // Anything still being read out is old news once a new message goes.
+    unawaited(ref.read(speechOutputProvider).stop());
     _inputController.clear();
     _speechBase = '';
     final attachments = List<Attachment>.from(_pending);
@@ -365,6 +473,17 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     // digested email), so refresh the panel.
     ref.invalidate(todayDashboardProvider);
     _scrollToBottom();
+
+    if (_conversationMode && mounted) {
+      final reply = result?.assistantText.trim() ?? '';
+      if (reply.isNotEmpty) {
+        await _replyAloud(reply);
+      } else {
+        await _endConversation(
+            farewell: 'Sorry, something went wrong. Check the chat.');
+      }
+      return;
+    }
 
     if (result != null && result.navigationTargets.isNotEmpty && mounted) {
       context.push(result.navigationTargets.last);
@@ -475,6 +594,20 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: _conversationMode
+                ? 'End voice conversation'
+                : 'Talk with Exa',
+            icon: Icon(
+              _conversationMode ? Icons.headset_off : Icons.headset_mic,
+              color: _conversationMode ? ExaColors.error : null,
+            ),
+            onPressed: chatState.sending && !_conversationMode
+                ? null
+                : _conversationMode
+                    ? () => _endConversation()
+                    : _startConversation,
+          ),
+          IconButton(
             tooltip: 'Clear conversation',
             icon: const Icon(Icons.delete_sweep_outlined),
             onPressed: chatState.messages.isEmpty
@@ -512,7 +645,9 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                     itemBuilder: (context, index) => _MessageBubble(
                         message: chatState
                             .messages[chatState.messages.length - 1 - index],
-                        onAction: _onMessageAction),
+                        onAction: _onMessageAction,
+                        onSpeak: (text) =>
+                            ref.read(speechOutputProvider).speak(text)),
                   ),
           ),
           if (chatState.sending)
@@ -544,6 +679,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                         content: chatState.streamingText,
                         createdAt: DateTime.now(),
                       ),
+                      showTimestamp: false,
                     ),
                   ),
           SafeArea(
@@ -584,8 +720,12 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                         controller: _inputController,
                         decoration: InputDecoration(
                           hintText: _listening
-                              ? 'Listening...'
-                              : 'Ask Exa anything...',
+                              ? (_conversationMode
+                                  ? "Listening... say 'goodbye' to finish"
+                                  : 'Listening...')
+                              : _conversationMode
+                                  ? 'Exa is answering...'
+                                  : 'Ask Exa anything...',
                           filled: false,
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
@@ -751,9 +891,21 @@ class _QuickChip extends StatelessWidget {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, this.onAction});
+  const _MessageBubble({
+    required this.message,
+    this.onAction,
+    this.onSpeak,
+    this.showTimestamp = true,
+  });
+
+  /// Reads an Exa reply aloud. Null for the user's own messages' callers
+  /// and for the reply still streaming in.
+  final void Function(String text)? onSpeak;
 
   final ChatMessage message;
+
+  /// Off for the reply still streaming in: it has no time of its own yet.
+  final bool showTimestamp;
 
   /// Invoked when the user taps a quick-action chip (open a screen / send a
   /// follow-up). Null on non-interactive bubbles (e.g. while streaming).
@@ -865,6 +1017,46 @@ class _MessageBubble extends StatelessWidget {
                     onTap: () => onAction!(action),
                   ),
               ],
+            ),
+          ],
+          if (showTimestamp) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment:
+                  isUser ? Alignment.centerRight : Alignment.centerLeft,
+              child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  chatTimestamp(message.createdAt),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontSize: 10.5,
+                    color: (isUser
+                            ? ExaColors.onAccentContainer
+                            : ExaColors.textSecondary)
+                        .withValues(alpha: 0.75),
+                  ),
+                ),
+                if (!isUser &&
+                    onSpeak != null &&
+                    message.content.trim().isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onSpeak!(message.content),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.volume_up_outlined,
+                        size: 16,
+                        color: ExaColors.textSecondary.withValues(alpha: 0.85),
+                        semanticLabel: 'Read aloud',
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+              ),
             ),
           ],
         ],

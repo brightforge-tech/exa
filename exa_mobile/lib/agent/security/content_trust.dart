@@ -276,6 +276,10 @@ class ExternalContentGuard {
     // consequential action in an unattended run.
     'read_screen': 'screen',
     'screen_screenshot': 'screen',
+    // Anyone can write a web page, so search results and pages are the
+    // least trusted text Exa reads.
+    'web_search': 'web',
+    'read_web_page': 'web',
   };
 
   /// The source label for a tool's output, or null when the tool returns

@@ -29,3 +29,9 @@
 # ExaJobService is started by name from the device plugin (the plugin cannot
 # depend on the app), so the name has to survive shrinking.
 -keep class com.brightforge.exa.jobs.** { *; }
+
+# sherpa-onnx ("Hey Exa"): its JNI code reads the config objects' fields and
+# calls the result constructors by name, so nothing in the package may be
+# renamed, inlined or removed. Without this the release build failed with
+# "Failed to get field ID for maxActivePaths".
+-keep class com.k2fsa.sherpa.onnx.** { *; }

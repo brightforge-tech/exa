@@ -29,8 +29,16 @@ versions in exa_mobile/pubspec.lock. Each is used under its own licence
 
 The licence text of every bundled package can be viewed inside the app.
 
-On-device AI models are NOT included in this repository or in Exa builds.
-They are downloaded by the user, and are subject to their own terms:
+- sherpa-onnx (k2-fsa) - Apache License 2.0, with ONNX Runtime (MIT)
+  statically linked. Used for the on-device "Hey Exa" wake phrase,
+  together with its GigaSpeech keyword-spotting model (Apache-2.0). Both
+  are downloaded by the Android build (exa_mobile/android/sherpa.gradle),
+  pinned to a release and SHA-256, and included in Exa builds; neither is
+  stored in this repository. https://github.com/k2-fsa/sherpa-onnx
+
+Apart from that wake-phrase model, on-device AI models are NOT included in
+this repository or in Exa builds. They are downloaded by the user, and are
+subject to their own terms:
 
 - Gemma 3 / Gemma 3n - Gemma Terms of Use, https://ai.google.dev/gemma/terms
 - Qwen2.5 - Apache License 2.0

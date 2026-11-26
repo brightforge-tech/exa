@@ -55,6 +55,7 @@ import '../services/synthesis_policy.dart';
 import '../services/token_calibration.dart';
 import '../services/turn_contract_builder.dart';
 import '../services/turn_verifier.dart';
+import '../services/user_features.dart';
 import '../skills/models/workflow_skill.dart';
 import '../skills/skill_matcher.dart';
 import '../tools/agent_tool.dart';
@@ -829,6 +830,25 @@ class AgentOrchestrator {
     // one - the diagnostic means the latter.
     final routingProducedNoDomains = activeDomains == null;
 
+    // The features Exa built for this user (a notes app, an expense log).
+    // A request that names one gets the tools that write to it, whatever
+    // the router chose: "save this as a note" read to the router as
+    // keeping a file, and the note went to Files instead of the notes the
+    // user had asked for.
+    var featureCatalog = UserFeatureCatalog.empty;
+    try {
+      featureCatalog = await UserFeatureCatalog.load(
+        collections: registry.records,
+        screens: registry.screens,
+      );
+    } catch (_) {
+      // A registry wired without collection storage has no features.
+    }
+    final mentionedFeatures = featureCatalog.mentionedIn(userText);
+    if (mentionedFeatures.isNotEmpty && activeDomains != null) {
+      activeDomains = {...activeDomains, ToolDomains.dynamicUi};
+    }
+
     // The turn's rules, compiled once into per-phase blocks: the action
     // prompt gets tool/decision rules, the finalization calls get writing
     // rules, and rules the app enforces itself are kept out of both.
@@ -866,6 +886,7 @@ class AgentOrchestrator {
     // system prompt and the tool definitions behind it stay the same bytes
     // and a caching server can reuse them (see [buildSystemPrompt]).
     final turnContext = buildTurnContext(
+      featuresContext: featureCatalog.describe(mentioned: mentionedFeatures),
       intelligenceContext: _buildIntelligenceContext(
         contract: contract,
         frame: frame,
@@ -941,6 +962,12 @@ class AgentOrchestrator {
     var exactTools = exactToolLoading && routing != null
         ? registry.knownToolNames(routing.requiredTools)
         : const <String>{};
+    if (exactTools.isNotEmpty && mentionedFeatures.isNotEmpty) {
+      exactTools = {
+        ...exactTools,
+        ...registry.knownToolNames(UserFeatureCatalog.recordTools),
+      };
+    }
 
     // How many tools the router named, kept even after `exactTools` is
     // cleared by an expansion - the measurement is what routing predicted,

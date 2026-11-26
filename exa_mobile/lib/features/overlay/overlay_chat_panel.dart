@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/chat_message.dart';
 import '../../services/overlay/overlay_panel_channel.dart';
+import '../../shared/chat_timestamp.dart';
 import '../../shared/theme/exa_theme.dart';
 import 'overlay_chat_controller.dart';
 import 'voice_input_controller.dart';
@@ -190,7 +191,8 @@ class _OverlayChatPanelState extends ConsumerState<OverlayChatPanel> {
               final message = items[index - (state.sending ? 1 : 0)];
               return message.role == 'user'
                   ? _UserBubble(message: message)
-                  : _AssistantBubble(text: message.content);
+                  : _AssistantBubble(
+                      text: message.content, at: message.createdAt);
             },
           ),
         ),
@@ -336,6 +338,12 @@ class _UserBubble extends StatelessWidget {
               Text(message.content,
                   style:
                       const TextStyle(color: ExaColors.onAccentContainer)),
+            const SizedBox(height: 3),
+            Text(chatTimestamp(message.createdAt),
+                style: TextStyle(
+                    fontSize: 10,
+                    color: ExaColors.onAccentContainer
+                        .withValues(alpha: 0.75))),
           ],
         ),
       ),
@@ -344,9 +352,12 @@ class _UserBubble extends StatelessWidget {
 }
 
 class _AssistantBubble extends StatelessWidget {
-  const _AssistantBubble({required this.text});
+  const _AssistantBubble({required this.text, this.at});
 
   final String text;
+
+  /// When the message was written; null for the reply still streaming in.
+  final DateTime? at;
 
   @override
   Widget build(BuildContext context) {
@@ -360,8 +371,21 @@ class _AssistantBubble extends StatelessWidget {
           color: ExaColors.surfaceHigh,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Text(text,
-            style: const TextStyle(color: ExaColors.textPrimary)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(text, style: const TextStyle(color: ExaColors.textPrimary)),
+            if (at != null) ...[
+              const SizedBox(height: 3),
+              Text(chatTimestamp(at!),
+                  style: TextStyle(
+                      fontSize: 10,
+                      color:
+                          ExaColors.textSecondary.withValues(alpha: 0.75))),
+            ],
+          ],
+        ),
       ),
     );
   }

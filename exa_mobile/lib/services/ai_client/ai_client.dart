@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Provider-agnostic AI client interface.
 ///
 /// The app speaks the Anthropic Messages wire format internally (the
@@ -103,4 +105,35 @@ class AiException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// How hard a reasoning model is asked to think, for every request made
+/// inside [run].
+///
+/// Carried in a [Zone] rather than threaded through [AiClient]'s methods:
+/// the choice belongs to the caller of a whole agent turn (a background
+/// digest is routine extraction; a chat question may not be), while the
+/// requests are made several layers down - routing, the tool loop, repair,
+/// synthesis. A zone value reaches all of them, follows every `await`, and
+/// cannot leak into a concurrent turn the way a field on the shared client
+/// would.
+///
+/// Backends that have no such setting ignore it.
+class ReasoningEffort {
+  ReasoningEffort._();
+
+  static const low = 'low';
+  static const medium = 'medium';
+  static const high = 'high';
+
+  static const _zoneKey = #exaReasoningEffort;
+
+  /// The effort requested for the current zone, or null for the server's
+  /// own default.
+  static String? get current => Zone.current[_zoneKey] as String?;
+
+  /// Runs [body] with [effort] applied to every model request it makes. A
+  /// null [effort] leaves the server default in place.
+  static Future<T> run<T>(String? effort, Future<T> Function() body) =>
+      effort == null ? body() : runZoned(body, zoneValues: {_zoneKey: effort});
 }

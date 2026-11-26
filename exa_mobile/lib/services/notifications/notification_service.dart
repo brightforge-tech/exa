@@ -101,6 +101,11 @@ class NotificationService {
     }
   }
 
+  /// Whether the user's quiet hours are in force now. Exa does not start
+  /// talking out loud inside them.
+  Future<bool> isQuietNow() async => (await _policy())
+      .shouldSuppress(NotificationPolicy.channelContent, DateTime.now());
+
   /// Channel that job results and daily summaries are posted on.
   ///
   /// Not `exa_jobs`, which is what it was. A channel's importance can be

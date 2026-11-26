@@ -49,6 +49,8 @@ class SourceGrounding {
     'summarize_browser_page',
     'read_file',
     'search',
+    'web_search',
+    'read_web_page',
   };
 
   /// The source domains a request names in its own words, for the run whose
@@ -70,6 +72,7 @@ class SourceGrounding {
 
   static const _messageWords = {
     'chat', 'chats', 'message', 'messages', 'whatsapp', 'telegram', 'signal',
+    'teams', 'sms', 'texts',
   };
   static const _emailWords = {
     'email', 'emails', 'mail', 'mails', 'inbox', 'gmail', 'outlook',

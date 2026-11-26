@@ -135,6 +135,14 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => context.go('/settings/job-history'),
           ),
           ListTile(
+            leading: const Icon(Icons.record_voice_over_outlined),
+            title: const Text('Voice & assistant'),
+            subtitle: const Text(
+                'Exa instead of Gemini on the side button, "Hey Exa", and '
+                'spoken follow-ups about what Exa adds'),
+            onTap: () => context.go('/settings/voice'),
+          ),
+          ListTile(
             leading: const Icon(Icons.blur_on),
             title: const Text('Exa bubble'),
             subtitle: const Text(

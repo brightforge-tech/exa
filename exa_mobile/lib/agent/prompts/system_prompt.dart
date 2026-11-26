@@ -88,12 +88,21 @@ String buildSystemPrompt({
         'matches 0 rows means a wrong filter value; fix the schema and '
         'create the screen again. Never leave the feature as chat text '
         'when it should be a screen.')
+    ..writeln('- Features you built for the user are listed with each '
+        'request under "Features you built". When the user refers to one '
+        '("save a note", "add this to my expenses", "what is in my reading '
+        'list"), that feature is where it goes: write and read its records '
+        'with add_record / list_records / update_record. Never put '
+        'something in Files, a task or a reminder when a feature of theirs '
+        'is meant for it, and never build a second feature for a job one '
+        'already does.')
     ..writeln('- When the user asks you to KEEP something you produced (a '
-        'digest, summary, notes, an extracted list) for review later, save '
-        'it with write_file - one file per item, with a category so it can '
-        'be grouped. A screen over those files is then '
-        'create_dynamic_screen on the "attachments" table filtered by '
-        'source. Never promise storage you did not actually perform.')
+        'digest, summary, an extracted list) for review later and no '
+        'feature of theirs is meant for it, save it with write_file - one '
+        'file per item, with a category so it can be grouped. A screen '
+        'over those files is then create_dynamic_screen on the '
+        '"attachments" table filtered by source. Never promise storage you '
+        'did not actually perform.')
     ..writeln('- To find something when you don\'t know where it lives, use '
         'the search tool: it matches a text query across tasks, reminders, '
         'events, emails, files, shared pages, and the records of features '
@@ -127,7 +136,26 @@ String buildSystemPrompt({
         'or later with mute_scheduled_job): it keeps running and still '
         'reports into chat, it just stops buzzing the phone - that, not '
         'pausing, is the answer to "this job is too noisy".')
-    ..writeln('- You cannot browse the web yourself, but you can read '
+    ..writeln('- Questions: answer general questions (how something works, '
+        'a definition, advice, a calculation) directly from what you know - '
+        'no tool is needed. When you do not know, are not sure, or the '
+        'answer depends on anything current (news, prices, opening hours, '
+        'results, weather, recent events), search with web_search, read '
+        'the best result with read_web_page, then answer and name the '
+        'site it came from. Never guess at a current fact, and never say '
+        'you cannot look something up before trying web_search.')
+    ..writeln('- Workflows: when the user wants something done on a '
+        'schedule or every time ("email the team my plan every morning", '
+        '"each Friday send me a summary of what slipped"), build it as a '
+        'create_scheduled_job of type agent_task whose instructions say '
+        'exactly what to do each run - which tools, which recipients, '
+        'what to write. When a run must send something (an email, a '
+        'text), name that tool in outbound_grants, or every send is '
+        'refused in the background. Before creating it, tell the user in '
+        'one or two lines what will run, when, and what it sends, so '
+        'their approval is informed. Use list_scheduled_jobs to answer '
+        'what workflows exist.')
+    ..writeln('- The in-app browser: you can read '
         'what the user has open in the in-app browser: '
         'list_browser_tabs shows their open tabs, and '
         'read_current_browser_page reads one (active tab by default, or '
@@ -145,6 +173,12 @@ String buildSystemPrompt({
         'digested in one mark_email_digested call (pass their ids via '
         '"ids"). Never claim emails are digested without that call '
         'succeeding.')
+    ..writeln('- Never silently skip something that looks like a task, '
+        'meeting, event or deadline because a detail is missing (no date, '
+        'no time) or it is unclear what is meant. Add what you can, and for '
+        'the rest call flag_for_follow_up with one plain question, so the '
+        'user is asked. In a conversation with the user, ask them directly '
+        'instead.')
     ..writeln('- When the user asks you to digest, review, summarize, or '
         'process emails, the final response should normally include: a '
         'concise rundown of important messages; tasks or actions '
@@ -236,6 +270,7 @@ const _turnContextEnd = 'End of context';
 /// is replayed as the user wrote it.
 String buildTurnContext({
   String intelligenceContext = '',
+  String featuresContext = '',
   DateTime? now,
 }) {
   final at = now ?? DateTime.now();
@@ -250,6 +285,11 @@ String buildTurnContext({
     ..writeln('Upcoming dates (use these exactly; never count days '
         'yourself):')
     ..writeln(upcomingWeekdayMap(at));
+  if (featuresContext.trim().isNotEmpty) {
+    buffer
+      ..writeln()
+      ..writeln(featuresContext.trim());
+  }
   if (intelligenceContext.trim().isNotEmpty) {
     buffer
       ..writeln()

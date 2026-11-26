@@ -72,7 +72,30 @@ abstract class OpenAiCompatibleClient implements AiClient {
   /// for that. It is then left out for the life of this instance.
   bool _skipRefused = false;
 
+  /// Whether this backend is sent `reasoning_effort` when the caller set one
+  /// (see [ReasoningEffort]). Off unless a backend says otherwise.
+  bool get acceptsReasoningEffort => false;
+
+  /// Set when the server refused a request because of `reasoning_effort`;
+  /// it is then left out for the life of this instance.
+  bool _effortRefused = false;
+
+  /// Whether [createMessage] also travels as a server-sent-event stream.
+  ///
+  /// A non-streamed reply sends nothing until the model has finished, and a
+  /// proxy or tunnel between the phone and the server (a reverse proxy, a
+  /// Cloudflare tunnel - which gives up on a silent request at 100 seconds)
+  /// drops a request that has been silent too long, however long the app
+  /// itself is willing to wait. Streamed, the first bytes arrive as soon as
+  /// the model starts writing, and the connection never looks idle.
+  bool get streamsEveryRequest => false;
+
   Duration get requestTimeout => const Duration(minutes: 5);
+
+  /// The longest a streamed reply may go without sending anything, once the
+  /// server has answered. A server still working is never silent this long;
+  /// one that is has stopped.
+  Duration get streamIdleTimeout => const Duration(seconds: 180);
 
   // PDF document blocks are Anthropic-specific; the OpenAI chat-completions
   // shape has no equivalent, so extracted text is always the right fallback.
@@ -100,36 +123,62 @@ abstract class OpenAiCompatibleClient implements AiClient {
     List<Map<String, Object?>>? tools,
     int maxTokens = 8192,
     bool deliberate = true,
+  }) =>
+      _sendWithFallback(
+        apiKey: apiKey,
+        model: model,
+        system: system,
+        messages: messages,
+        tools: tools,
+        maxTokens: maxTokens,
+        stream: streamsEveryRequest,
+        deliberate: deliberate,
+      );
+
+  /// Sends one request, dropping the optional fields a server refused.
+  ///
+  /// The skip-deliberation switch and `reasoning_effort` are both requests
+  /// a server may not know. One that rejects the request for them (400 or
+  /// 422) is asked again without them - the effort first, being the newer
+  /// field - and is not sent that field again by this instance.
+  Future<AiResponse> _sendWithFallback({
+    required String? apiKey,
+    required String model,
+    required String system,
+    required List<Map<String, Object?>> messages,
+    required List<Map<String, Object?>>? tools,
+    required int maxTokens,
+    required bool stream,
+    bool deliberate = true,
+    void Function(String delta)? onText,
   }) async {
-    final skip = !deliberate && canSkipDeliberation && !_skipRefused;
-    try {
-      return await _post(
-        apiKey: apiKey,
-        body: buildBody(
-          model: model,
-          system: system,
-          messages: messages,
-          tools: tools,
-          maxTokens: maxTokens,
-          stream: false,
-          deliberate: !skip,
-        ),
+    while (true) {
+      final skip = !deliberate && canSkipDeliberation && !_skipRefused;
+      final body = buildBody(
+        model: model,
+        system: system,
+        messages: messages,
+        tools: tools,
+        maxTokens: maxTokens,
+        stream: stream,
+        deliberate: !skip,
       );
-    } on AiException catch (e) {
-      final refused = e.statusCode == 400 || e.statusCode == 422;
-      if (!skip || !refused) rethrow;
-      _skipRefused = true;
-      return _post(
-        apiKey: apiKey,
-        body: buildBody(
-          model: model,
-          system: system,
-          messages: messages,
-          tools: tools,
-          maxTokens: maxTokens,
-          stream: false,
-        ),
-      );
+      final effortSent = body.containsKey('reasoning_effort');
+      try {
+        return stream
+            ? await _stream(apiKey: apiKey, body: body, onText: onText)
+            : await _post(apiKey: apiKey, body: body);
+      } on AiException catch (e) {
+        final refused = e.statusCode == 400 || e.statusCode == 422;
+        if (!refused) rethrow;
+        if (effortSent) {
+          _effortRefused = true;
+        } else if (skip) {
+          _skipRefused = true;
+        } else {
+          rethrow;
+        }
+      }
     }
   }
 
@@ -180,16 +229,23 @@ abstract class OpenAiCompatibleClient implements AiClient {
     List<Map<String, Object?>>? tools,
     int maxTokens = 8192,
     void Function(String delta)? onText,
-  }) async {
-    final body = buildBody(
-      model: model,
-      system: system,
-      messages: messages,
-      tools: tools,
-      maxTokens: maxTokens,
-      stream: true,
-    );
+  }) =>
+      _sendWithFallback(
+        apiKey: apiKey,
+        model: model,
+        system: system,
+        messages: messages,
+        tools: tools,
+        maxTokens: maxTokens,
+        stream: true,
+        onText: onText,
+      );
 
+  Future<AiResponse> _stream({
+    required String? apiKey,
+    required Map<String, Object?> body,
+    void Function(String delta)? onText,
+  }) async {
     final request = http.Request('POST', chatCompletionsUri)
       ..headers.addAll(buildHeaders(apiKey))
       ..body = jsonEncode(body);
@@ -199,6 +255,32 @@ abstract class OpenAiCompatibleClient implements AiClient {
       response = await httpClient.send(request).timeout(requestTimeout);
     } catch (e) {
       throw AiException(unreachableMessage(e));
+    }
+
+    // A server that ignores `stream` answers with one ordinary JSON body.
+    // That is still a complete answer, read as one.
+    // Only a declared JSON body: a stream sent with no content type at all
+    // is still a stream.
+    final contentType = response.headers['content-type'] ?? '';
+    if (response.statusCode == 200 && contentType.contains('json')) {
+      final String raw;
+      try {
+        raw = await response.stream.bytesToString().timeout(requestTimeout);
+      } catch (e) {
+        throw AiException(unreachableMessage(e));
+      }
+      final Map<String, Object?> decoded;
+      try {
+        decoded = (jsonDecode(raw) as Map).cast<String, Object?>();
+      } catch (_) {
+        throw AiException('$serviceName returned an unreadable response '
+            '(HTTP ${response.statusCode})');
+      }
+      throwIfError(response.statusCode, decoded);
+      final parsed = fromOpenAiResponse(decoded);
+      observeResponse(parsed);
+      if (parsed.text.isNotEmpty) onText?.call(parsed.text);
+      return parsed;
     }
 
     if (response.statusCode != 200) {
@@ -225,7 +307,13 @@ abstract class OpenAiCompatibleClient implements AiClient {
 
     final lines = response.stream
         .transform(utf8.decoder)
-        .transform(const LineSplitter());
+        .transform(const LineSplitter())
+        .timeout(streamIdleTimeout, onTimeout: (sink) {
+      sink.addError(AiException(
+          '$serviceName stopped sending its reply for '
+          '${streamIdleTimeout.inSeconds} seconds'));
+      sink.close();
+    });
     await for (final line in lines) {
       if (!line.startsWith('data:')) continue;
       final payload = line.substring(5).trim();
@@ -258,7 +346,9 @@ abstract class OpenAiCompatibleClient implements AiClient {
       // Reasoning models stream their chain of thought on a separate field.
       // It is kept out of [onText] - the chat shows the answer, not the
       // deliberation - but preserved as a thinking block.
-      final thought = delta['reasoning_content'];
+      // llama.cpp and DeepSeek call it reasoning_content; Ollama and some
+      // gateways call it reasoning.
+      final thought = delta['reasoning_content'] ?? delta['reasoning'];
       if (thought is String && thought.isNotEmpty) reasoning.write(thought);
 
       final toolCalls = delta['tool_calls'];
@@ -296,13 +386,17 @@ abstract class OpenAiCompatibleClient implements AiClient {
       });
     }
 
-    return AiResponse(
+    final parsed = AiResponse(
       stopReason:
           content.any((b) => b['type'] == 'tool_use') ? 'tool_use' : 'end_turn',
       content: content,
       inputTokens: usage?['prompt_tokens'] as int?,
       outputTokens: usage?['completion_tokens'] as int?,
+      cacheReadTokens: usage?['prompt_cache_hit_tokens'] as int?,
+      cacheWriteTokens: usage?['prompt_cache_miss_tokens'] as int?,
     );
+    observeResponse(parsed);
+    return parsed;
   }
 
   /// The request body both paths send. Strict Jinja chat templates reject
@@ -332,6 +426,12 @@ abstract class OpenAiCompatibleClient implements AiClient {
       if (!deliberate)
         'chat_template_kwargs': const {'enable_thinking': false},
     };
+    // Routine work (a background digest) asks a reasoning model to think
+    // less than the server's default - see [ReasoningEffort].
+    final effort = ReasoningEffort.current;
+    if (effort != null && acceptsReasoningEffort && !_effortRefused) {
+      body['reasoning_effort'] = effort;
+    }
     decorateBody(body);
     return body;
   }

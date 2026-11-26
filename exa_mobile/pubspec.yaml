@@ -82,7 +82,12 @@ dependencies:
   # same reason as exa_phone - see packages/exa_device.
   exa_device:
     path: packages/exa_device
+  # Voice: the over-the-lock-screen session, "Hey Exa", spoken follow-ups.
+  # A local plugin for the same reason as exa_phone - see packages/exa_voice.
+  exa_voice:
+    path: packages/exa_voice
   pdfrx: ^2.4.5
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   flutter_test:

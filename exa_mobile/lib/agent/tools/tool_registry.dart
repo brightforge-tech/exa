@@ -45,6 +45,8 @@ import '../../services/notifications/notification_service.dart';
 import '../../services/phone/phone_bridge.dart';
 import '../../services/phone/phone_recipient.dart';
 import '../../services/planning/day_plan_sync.dart';
+import '../../services/voice/follow_ups.dart';
+import '../../services/web/web_search_service.dart';
 import '../../device/device_control.dart';
 import '../../device/device_bridge.dart';
 import '../../device/device_owner_backend.dart';
@@ -109,6 +111,7 @@ class ToolRegistry {
     DiagnosticsRepository? diagnostics,
     InboundMessageRepository? chatMessages,
     MessageIngestService? messageIngest,
+    WebSearchService? webSearch,
     this.messagingBridge = const MessagingBridge(),
     this.phoneBridge = const PhoneBridge(),
     DeviceControl? deviceControl,
@@ -117,6 +120,9 @@ class ToolRegistry {
     this.diagnostics = diagnostics ?? DiagnosticsRepository(database);
     this.attachments = attachments ?? AttachmentRepository(database);
     this.records = records ?? UserCollectionRepository(database);
+    // Defaulted like the repositories around it: it holds nothing but an
+    // HTTP client, and makes no request until a web tool is called.
+    this.webSearch = webSearch ?? WebSearchService();
     // Defaulted rather than required, like `attachments` above: a required
     // argument here would have to be threaded through the app, the overlay,
     // two background isolates and every test that builds a registry, all to
@@ -156,6 +162,10 @@ class ToolRegistry {
   /// Chat messages captured from WhatsApp and friends.
   late final InboundMessageRepository chatMessages;
   late final MessageIngestService messageIngest;
+
+  /// Public web search and page reading, for what neither the model nor
+  /// the user's own data can answer.
+  late final WebSearchService webSearch;
 
   /// Reaches the live notification actions, so it is only useful on the main
   /// engine — which is also the only place a reply may be sent from.
@@ -669,7 +679,11 @@ class ToolRegistry {
 
   void _register() {
     final byDomain = <String, List<AgentTool>>{
-      ToolDomains.core: [..._searchTools(), ..._navigationTools()],
+      ToolDomains.core: [
+        ..._searchTools(),
+        ..._navigationTools(),
+        ..._followUpTools(),
+      ],
       ToolDomains.tasks: _taskTools(),
       ToolDomains.reminders: _reminderTools(),
       ToolDomains.calendar: [
@@ -686,6 +700,7 @@ class ToolRegistry {
       ToolDomains.behaviorRules: _behaviorTools(),
       ToolDomains.phone: _phoneTools(),
       ToolDomains.screen: _screenTools(),
+      ToolDomains.web: _webTools(),
     };
     byDomain.forEach((domain, tools) {
       for (final tool in tools) {
@@ -694,6 +709,196 @@ class ToolRegistry {
       }
     });
   }
+
+  // ------------------------------------------------------------ follow-up --
+
+  /// Open questions for the user, kept where the voice session and the
+  /// follow-up notifications find them.
+  late final FollowUpStore followUps = FollowUpStore(SettingsRepository(database));
+
+  List<AgentTool> _followUpTools() => [
+    AgentTool(
+      name: 'flag_for_follow_up',
+      description:
+          'Saves a question for the user about something you could not '
+          'settle yourself, so Exa asks them (by notification, and aloud if '
+          'they turned that on) instead of the item being dropped. Use it '
+          'whenever you find something that looks like a task, meeting, '
+          'event or deadline but cannot add it properly: no date, no time, '
+          'unclear what is meant, or two possible readings. Never just skip '
+          'such an item or only mention it in your summary - flag it. '
+          'Write the question as you would say it to them ("The team '
+          'offsite in Sam\'s message has no date - when is it?").',
+      permission: 'tasks.write',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'title': {
+            'type': 'string',
+            'description': 'Short name of the item, e.g. "Team offsite".',
+          },
+          'question': {
+            'type': 'string',
+            'description': 'The one question to ask the user.',
+          },
+          'details': {
+            'type': 'string',
+            'description':
+                'What you already know and where it came from (chat, '
+                'sender, email subject).',
+          },
+          'reason': {
+            'type': 'string',
+            'enum': ['missing_date', 'missing_time', 'unclear', 'confirm'],
+          },
+        },
+        'required': ['title', 'question'],
+      },
+      execute: (input) async {
+        final title = (input['title'] as String? ?? '').trim();
+        final question = (input['question'] as String? ?? '').trim();
+        if (title.isEmpty || question.isEmpty) {
+          return const ToolResult.fail('title and question are required');
+        }
+        final saved = await followUps.add(FollowUpQuestion(
+          id: 'fu_${DateTime.now().microsecondsSinceEpoch}',
+          title: title,
+          question: question,
+          details: (input['details'] as String? ?? '').trim(),
+          reason: (input['reason'] as String? ?? 'unclear').trim(),
+          createdAt: DateTime.now(),
+        ));
+        return ToolResult.ok({
+          'id': saved.id,
+          'saved': true,
+          'note': 'The user will be asked. Do not create the item until '
+              'they answer.',
+        });
+      },
+    ),
+    AgentTool(
+      name: 'resolve_follow_up',
+      description:
+          'Marks a flagged question as settled once the user has answered '
+          'it (and you have added or changed the item), or when they say to '
+          'drop it. Without an id, lists the open questions.',
+      permission: 'tasks.write',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'id': {'type': 'string'},
+        },
+        'required': <String>[],
+      },
+      execute: (input) async {
+        final id = (input['id'] as String? ?? '').trim();
+        if (id.isEmpty) {
+          final open = await followUps.list();
+          return ToolResult.ok({
+            'count': open.length,
+            'questions': [for (final q in open) q.toJson()],
+          });
+        }
+        final removed = await followUps.resolve(id);
+        return removed
+            ? ToolResult.ok({'id': id, 'resolved': true})
+            : const ToolResult.fail('No open question with that id.');
+      },
+    ),
+  ];
+
+  // ----------------------------------------------------------------- web --
+
+  List<AgentTool> _webTools() => [
+    AgentTool(
+      name: 'web_search',
+      description:
+          'Searches the public internet and returns the top results '
+          '(title, address, snippet). Use it when you do not know the '
+          'answer, are not sure, or the answer depends on something '
+          'current: news, prices, opening hours, sports results, weather, '
+          'facts about a company, a product or a place. Put only the '
+          'question in the query - never the user\'s private details '
+          '(names of their contacts, message or email text). Snippets are '
+          'short; read the most promising result with read_web_page before '
+          'answering anything that needs detail. Tell the user where the '
+          'answer came from (the site name).',
+      permission: 'web.search',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'query': {
+            'type': 'string',
+            'description': 'What to search for, as you would type it.',
+          },
+          'limit': {
+            'type': 'integer',
+            'description': 'Results to return (default 6, max 10).',
+          },
+        },
+        'required': ['query'],
+      },
+      execute: (input) async {
+        final query = (input['query'] as String? ?? '').trim();
+        if (query.isEmpty) {
+          return const ToolResult.fail('query must not be empty');
+        }
+        final limit = ((input['limit'] as int?) ?? 6).clamp(1, 10);
+        try {
+          final results = await webSearch.search(query, limit: limit);
+          return ToolResult.ok({
+            'query': query,
+            'count': results.length,
+            'results': [for (final r in results) r.toAgentJson()],
+            'note': results.isEmpty
+                ? 'The search found nothing. Try different or fewer words, '
+                      'or tell the user you could not find it.'
+                : 'Snippets can be out of date or out of context. Read a '
+                      'page with read_web_page before relying on a detail.',
+          });
+        } on WebSearchException catch (e) {
+          return ToolResult.fail(e.message);
+        }
+      },
+    ),
+    AgentTool(
+      name: 'read_web_page',
+      description:
+          'Loads a public web page by its address and returns its '
+          'readable text (up to about 8,000 characters). Use it on a '
+          'web_search result, or on a link the user gave you. For a page '
+          'the user has open in the in-app browser, use '
+          'read_current_browser_page instead.',
+      permission: 'web.search',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'url': {
+            'type': 'string',
+            'description': 'The full address, starting with https://',
+          },
+        },
+        'required': ['url'],
+      },
+      execute: (input) async {
+        final url = (input['url'] as String? ?? '').trim();
+        if (url.isEmpty) return const ToolResult.fail('url must not be empty');
+        try {
+          final page = await webSearch.read(url);
+          return ToolResult.ok({
+            'url': page.url,
+            if (page.title.isNotEmpty) 'title': page.title,
+            'text': page.text,
+            if (page.truncated)
+              'note': 'The page was longer than this; only the start is '
+                  'shown.',
+          });
+        } on WebSearchException catch (e) {
+          return ToolResult.fail(e.message);
+        }
+      },
+    ),
+  ];
 
   // -------------------------------------------------------------- search --
 
@@ -1154,12 +1359,111 @@ class ToolRegistry {
   ///  - **A reply is borrowed, not composed.** It goes out through the chat
   ///    app's own notification action, which exists only while the message is
   ///    unread. `reply_to_chat` says so when it cannot.
+  /// The search form of `read_message_context`: filters by app, day and
+  /// words, and returns each match with its text, since a search that
+  /// hands back ids and senders only leaves the model nothing to answer
+  /// from.
+  Future<ToolResult> _searchMessages({
+    required String? channel,
+    required String query,
+    required String day,
+    required String since,
+    required int limit,
+  }) async {
+    DateTime? from;
+    DateTime? until;
+    if (day.isNotEmpty) {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final lower = day.toLowerCase();
+      final start = lower == 'today'
+          ? today
+          : lower == 'yesterday'
+          ? today.subtract(const Duration(days: 1))
+          : DateTime.tryParse(day);
+      if (start == null) {
+        return const ToolResult.fail(
+          'day must be "today", "yesterday" or a YYYY-MM-DD date',
+        );
+      }
+      from = DateTime(start.year, start.month, start.day);
+      until = from.add(const Duration(days: 1));
+    }
+    if (since.isNotEmpty) {
+      final parsed = DateTime.tryParse(since);
+      if (parsed == null) {
+        return const ToolResult.fail('since must be an ISO 8601 date');
+      }
+      if (from == null || parsed.isAfter(from)) from = parsed;
+    }
+    // A search is a question about now: whatever the listener captured
+    // since the last sync belongs in the answer.
+    var synced = 0;
+    try {
+      synced = (await messageIngest.syncAllDetailed()).added;
+    } catch (_) {
+      // Searching what is already stored is still worth doing.
+    }
+    final terms = [
+      for (final word in query.split(RegExp(r'[\s,;]+')))
+        if (word.length > 1 && !_searchStopWords.contains(word.toLowerCase()))
+          word,
+    ];
+    final matches = await chatMessages.find(
+      channel: channel,
+      terms: terms,
+      since: from,
+      until: until,
+      limit: limit,
+    );
+    final appName = channel == null
+        ? 'chat app'
+        : MessageChannels.displayName(channel);
+    return ToolResult.ok({
+      'count': matches.length,
+      'channel': ?channel,
+      if (terms.isNotEmpty) 'matched_any_of': terms,
+      if (from != null) 'from': from.toIso8601String(),
+      if (until != null) 'until': until.toIso8601String(),
+      'newly_synced': synced,
+      'messages': [
+        for (final message in matches)
+          {
+            ...message.toAgentJson(),
+            'text': _excerpt(message.displayBody, 600),
+          },
+      ],
+      'note': matches.isEmpty
+          ? 'No captured $appName notifications match. Exa only sees '
+                'messages that arrived as notifications while '
+                '${channel == null ? 'the app' : appName} was switched on in '
+                'Settings > Chat apps - a message read in the app before its '
+                'notification showed, or one in a muted chat, is never '
+                'captured. Say that plainly, and suggest a broader search '
+                '(fewer words, or no day) if one is worth trying.'
+          : 'These are notification texts, so long messages may be cut '
+                'short. Answer from them and say which chat each came from.',
+    });
+  }
+
+  /// Words that say where to look rather than what to look for. Matching
+  /// "my" or "chat" against every message would return the whole inbox.
+  static const _searchStopWords = {
+    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'for', 'to', 'my',
+    'any', 'all', 'about', 'with', 'from', 'chat', 'chats', 'message',
+    'messages', 'today', 'yesterday', 'teams', 'whatsapp', 'search',
+  };
+
+  static String _excerpt(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max)}...';
+
   List<AgentTool> _messageTools() => [
     AgentTool(
       name: 'sync_messages',
       description:
-          'Brings newly captured chat messages (WhatsApp, Signal, '
-          'Telegram, SMS) into the inbox you can read with '
+          'Brings newly captured chat messages and app notifications '
+          '(WhatsApp, Signal, Telegram, SMS, Microsoft Teams, Outlook, '
+          'Gmail) into the inbox you can read with '
           'read_message_context. Use before digesting or answering '
           'questions about recent messages. Cheap and safe to call.',
       permission: 'messages.read',
@@ -1216,9 +1520,19 @@ class ToolRegistry {
     AgentTool(
       name: 'read_message_context',
       description:
-          'Reads captured chat messages. Without an id, lists recent '
-          'ones (chat, sender, preview); set undigested_only to focus on '
-          'new ones. With an id, returns the full message. After '
+          'Reads captured chat messages - the notifications Exa saved '
+          'from WhatsApp, Signal, Telegram, SMS, Microsoft Teams, Outlook '
+          'and Gmail. Without an id, lists recent ones (chat, sender, '
+          'preview); set undigested_only to focus on new ones. With an id, '
+          'returns the full message.\n'
+          'To SEARCH ("anything in my Teams chats about an event today", '
+          '"what did Sam say about the invoice"), pass query with a few '
+          'key words (any of them may match - include synonyms, e.g. '
+          '"event meeting call invite"), channel to limit it to one app, '
+          'and day ("today", "yesterday" or YYYY-MM-DD) or since to limit '
+          'it in time. A search syncs new notifications first and returns '
+          'each match with its text. Leave query out to list everything '
+          'from that app or day. After '
           'processing messages (summarizing them, pulling out tasks or '
           'dates), mark them with mark_message_digested.\n'
           'Returns ONE BATCH, never the whole backlog: the reply carries '
@@ -1258,7 +1572,29 @@ class ToolRegistry {
                 'call.',
           },
           'undigested_only': {'type': 'boolean'},
-          'channel': {'type': 'string'},
+          'channel': {
+            'type': 'string',
+            'description':
+                'One app: whatsapp, whatsapp_business, signal, telegram, '
+                'sms, teams, outlook or gmail.',
+          },
+          'query': {
+            'type': 'string',
+            'description':
+                'Words to search for in the message text, sender and chat '
+                'name. A message matching ANY word is returned.',
+          },
+          'day': {
+            'type': 'string',
+            'description':
+                '"today", "yesterday" or a YYYY-MM-DD date: only messages '
+                'sent that day.',
+          },
+          'since': {
+            'type': 'string',
+            'description':
+                'ISO 8601 date or datetime: only messages sent from then on.',
+          },
           'limit': {
             'type': 'integer',
             'description': 'Messages per batch (default 15, max 40).',
@@ -1365,7 +1701,22 @@ class ToolRegistry {
           return ToolResult.ok(json);
         }
         final limit = ((input['limit'] as int?) ?? 15).clamp(1, 40);
-        final channel = input['channel'] as String?;
+        final rawChannel = (input['channel'] as String?)?.trim();
+        final channel = rawChannel == null || rawChannel.isEmpty
+            ? null
+            : MessageChannels.normalize(rawChannel) ?? rawChannel;
+        final query = (input['query'] as String? ?? '').trim();
+        final day = (input['day'] as String? ?? '').trim();
+        final since = (input['since'] as String? ?? '').trim();
+        if (query.isNotEmpty || day.isNotEmpty || since.isNotEmpty) {
+          return _searchMessages(
+            channel: channel,
+            query: query,
+            day: day,
+            since: since,
+            limit: limit,
+          );
+        }
         final undigestedOnly = input['undigested_only'] == true;
         final items = undigestedOnly
             ? await chatMessages.undigested(limit: limit, channel: channel)

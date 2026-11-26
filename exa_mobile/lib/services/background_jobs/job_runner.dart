@@ -43,6 +43,7 @@ import '../mail/mail_service.dart';
 import '../messaging/message_ingest_service.dart';
 import '../notifications/notification_service.dart';
 import '../transcription/audio_transcriber.dart';
+import '../voice/follow_ups.dart';
 
 /// Executes scheduled jobs. Runs both in the foreground ("Run now") and in
 /// the WorkManager background isolate (periodic tick).
@@ -548,6 +549,7 @@ class JobRunner {
     required String title,
     int notificationId = 90003,
     ScheduledJob? job,
+    String? reasoningEffort,
   }) async {
     final orchestrate = orchestratorFactory;
     if (orchestrate == null) {
@@ -570,25 +572,32 @@ class JobRunner {
     }
     _agentTurnInProgress = true;
     try {
-      final result = await orchestrate().run(
-        prompt,
-        persistUserMessage: false,
-        unattended: true,
-        // A run that found nothing new (every 5 minutes, say) is not worth
-        // a chat card; the job history still records what it found.
-        suppressQuietChatMessage: true,
-        behaviorSurface: BehaviorSurface.scheduledJob,
-        jobPermissions: JobPermissions.decode(job?.permissionsJson),
-        jobId: job?.id,
-        jobRunId: _activeRunId,
-        // A job may declare exactly which effects it exists to produce.
-        // One that says nothing keeps the unattended default, which
-        // already excludes anything recurring - widened only by the
-        // effects of the outbound tools the user granted it, if any.
-        writeScope: WriteScope.forJob(job?.permissionsJson),
-        behaviorSnapshot: _snapshotFor(job),
-        skipBehaviors: job?.behaviorMode == 'none',
-        assistantMeta: {'source': 'scheduled_job', 'job_title': title},
+      // A digest is routine extraction: a reasoning model left at the
+      // server's default (medium) spends most of the run deliberating over
+      // which message is a task. Every request in the turn - routing, the
+      // tool loop, repair - is asked to think less.
+      final result = await ReasoningEffort.run(
+        reasoningEffort,
+        () => orchestrate().run(
+          prompt,
+          persistUserMessage: false,
+          unattended: true,
+          // A run that found nothing new (every 5 minutes, say) is not worth
+          // a chat card; the job history still records what it found.
+          suppressQuietChatMessage: true,
+          behaviorSurface: BehaviorSurface.scheduledJob,
+          jobPermissions: JobPermissions.decode(job?.permissionsJson),
+          jobId: job?.id,
+          jobRunId: _activeRunId,
+          // A job may declare exactly which effects it exists to produce.
+          // One that says nothing keeps the unattended default, which
+          // already excludes anything recurring - widened only by the
+          // effects of the outbound tools the user granted it, if any.
+          writeScope: WriteScope.forJob(job?.permissionsJson),
+          behaviorSnapshot: _snapshotFor(job),
+          skipBehaviors: job?.behaviorMode == 'none',
+          assistantMeta: {'source': 'scheduled_job', 'job_title': title},
+        ),
       );
       final summary = result.assistantText.trim();
       // A null report means the turn failed before doing any work (missing
@@ -605,6 +614,7 @@ class JobRunner {
         return null;
       }
       await _closeOutServedItems(result, source: title);
+      await _announceFollowUps(result, source: title);
       if (result.wasQuiet) {
         // Nothing new, nothing done, nothing failed: the orchestrator kept
         // it out of chat, and a buzz for it would be noise too. The run and
@@ -636,6 +646,43 @@ class JobRunner {
       return null;
     } finally {
       _agentTurnInProgress = false;
+    }
+  }
+
+  /// Tells the user what this run added on its own and asks what it could
+  /// not settle - see [FollowUpAnnouncer]. Never costs the run: a
+  /// notification that cannot be posted is a diagnostic, not a failure.
+  Future<void> _announceFollowUps(
+    AgentTurnResult result, {
+    required String source,
+  }) async {
+    try {
+      final added = AddedItem.fromRecords(result.executionRecords);
+      final flaggedIds = <String>{
+        for (final record in result.executionRecords)
+          if (record.toolName == 'flag_for_follow_up' &&
+              record.status == ToolExecutionStatus.success &&
+              record.rawResult is Map &&
+              (record.rawResult as Map)['id'] is String)
+            (record.rawResult as Map)['id'] as String,
+      };
+      final questions = flaggedIds.isEmpty
+          ? const <FollowUpQuestion>[]
+          : [
+              for (final q in await FollowUpStore(settings).list())
+                if (flaggedIds.contains(q.id)) q,
+            ];
+      await FollowUpAnnouncer(
+        settings: settings,
+        isQuietNow: notifications.isQuietNow,
+      ).announce(added: added, questions: questions, source: source);
+    } catch (e) {
+      await diagnostics.warn(
+        code: 'FOLLOW_UP_NOT_ANNOUNCED',
+        message: "Could not tell the user what '$source' added: $e",
+        context: {'source': source},
+        error: e,
+      );
     }
   }
 
@@ -872,6 +919,7 @@ class JobRunner {
           'total; do NOT try to read them all at once - the rest are '
           'handled on the next run.',
           title: 'Email digest',
+          reasoningEffort: ReasoningEffort.low,
           notificationId: 90004,
         );
         if (summary == null) {
@@ -948,6 +996,7 @@ class JobRunner {
       'note has no transcript, say so - never invent what a photo showed '
       'or a voice note said.',
       title: 'Chat digest',
+      reasoningEffort: ReasoningEffort.low,
       notificationId: 90005,
     );
     if (summary == null) {

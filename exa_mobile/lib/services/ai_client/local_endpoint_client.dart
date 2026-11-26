@@ -1,6 +1,6 @@
 import '../../agent/behaviors/token_estimator.dart';
 import '../../data/repositories/settings_repository.dart';
-import 'ai_client.dart';
+import 'ai_client.dart' show AiResponse;
 import 'openai_compatible_client.dart';
 
 /// Talks to a local, OpenAI-compatible chat-completions server
@@ -116,27 +116,18 @@ class LocalEndpointClient extends OpenAiCompatibleClient {
   @override
   int? contextWindow = SettingsRepository.defaultLocalContextTokens;
 
-  /// No token streaming yet for the local server: run the normal request and
-  /// hand the whole text back in one [onText] call so the chat UI shows it.
+  /// Every request to the local server is streamed, background ones
+  /// included. Unstreamed, a long digest sent nothing until the model had
+  /// finished, and a tunnel or proxy in front of the server cut it off as
+  /// idle long before [requestTimeout] - the reply was lost however long the
+  /// app was prepared to wait. A server that ignores `stream` still answers
+  /// with plain JSON, which is read as before.
   @override
-  Future<AiResponse> streamMessage({
-    String? apiKey,
-    required String model,
-    required String system,
-    required List<Map<String, Object?>> messages,
-    List<Map<String, Object?>>? tools,
-    int maxTokens = 8192,
-    void Function(String delta)? onText,
-  }) async {
-    final response = await createMessage(
-      apiKey: apiKey,
-      model: model,
-      system: system,
-      messages: messages,
-      tools: tools,
-      maxTokens: maxTokens,
-    );
-    if (response.text.isNotEmpty) onText?.call(response.text);
-    return response;
-  }
+  bool get streamsEveryRequest => true;
+
+  /// llama.cpp, vLLM and the servers built on them take the OpenAI
+  /// `reasoning_effort` field (and default to medium); one that rejects it
+  /// is asked again without it, once.
+  @override
+  bool get acceptsReasoningEffort => true;
 }

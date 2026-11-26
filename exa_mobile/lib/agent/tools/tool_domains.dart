@@ -29,6 +29,9 @@ class ToolDomains {
   /// service (this build's OS-level device control).
   static const String screen = 'screen';
 
+  /// The public internet: searching it and reading pages by address.
+  static const String web = 'web';
+
   /// Domains the router (and `expand_tools`) may select, with the one-line
   /// descriptions the model sees when choosing.
   static const Map<String, String> selectable = {
@@ -39,14 +42,18 @@ class ToolDomains {
         'calendar, and the daily planning board (setting aside time to do a '
         'task, planning or rearranging a day)',
     email: 'sync, read, digest, or send email',
-    messages: 'chat messages from WhatsApp and other messaging apps - '
-        'reading a chat, digesting new messages, or replying to one',
+    messages: 'chat messages and saved notifications from WhatsApp, '
+        'Signal, Telegram, SMS, Microsoft Teams, Outlook and Gmail - '
+        'reading or searching chats ("anything in my Teams chats about '
+        'today?"), digesting new messages, or replying to one',
     files: 'stored files - keeping a document or generated digest for '
         'later, listing, reading, deleting',
     browser: 'pages and tabs open in the in-app browser, or pages the user '
         'shared to Exa',
-    backgroundJobs:
-        'recurring background jobs (daily summaries, reviews, syncs)',
+    backgroundJobs: 'workflows and automations that run on a schedule - '
+        'recurring background jobs (daily summaries, reviews, syncs, '
+        '"send this email every morning", "each Friday, summarize my '
+        'week"), and listing or changing the ones that exist',
     dynamicUi: 'build custom app screens, views, and dashboards - and '
         'whole small features with their own data (a note-taking app, an '
         'expense log, a tracker), via collections and records',
@@ -58,6 +65,9 @@ class ToolDomains {
     screen: 'read and operate any other app on the phone (Outlook, WhatsApp, '
         'a banking app): see what is on screen, tap, type, swipe, open an '
         'app, or take a screenshot',
+    web: 'search the internet and read web pages - for questions you '
+        'cannot answer from memory or the user\'s data, and anything '
+        'current (news, prices, opening hours, results, weather)',
   };
 
   /// One domain per line, `name: description` — used in the router prompt

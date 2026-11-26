@@ -6,6 +6,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// sherpa-onnx (the "Hey Exa" keyword spotter): fetched, checksummed and
+// unpacked into android/.sherpa by this script - see android/sherpa.gradle.
+apply(from = rootProject.file("sherpa.gradle"))
+val sherpaAar = extra["sherpaAar"] as File
+val sherpaAssets = extra["sherpaAssets"] as File
+
 // Release signing lives in android/key.properties (never commit it).
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("key.properties")
@@ -56,6 +62,9 @@ android {
     // speaks Bundle/Uri/ContentResolver - framework types a bare JVM test
     // cannot build - and no androidx.core, which this module deliberately
     // does not depend on (see ExaNotificationListener.messageEntries).
+    // The keyword-spotting model, read by WakeWordService from assets/kws.
+    sourceSets["main"].assets.srcDir(sherpaAssets)
+
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
@@ -90,6 +99,8 @@ dependencies {
     // floor, not a pin: Gradle still resolves to the highest version any
     // plugin asks for.
     implementation("androidx.work:work-runtime:2.11.0")
+    // On-device "Hey Exa" detection (packages/exa_voice compiles against it).
+    implementation(files(sherpaAar))
     // The unit-test seam for the messaging package. Robolectric's android
     // jar provides Bundle/Uri/ContentResolver behaviour on the JVM; these
     // are testImplementation, so nothing ships in the app.

@@ -191,6 +191,33 @@
         </service>
         <!-- Translucent trampoline that shows the system screen-capture
              consent dialog and forwards the result to the service -->
+        <!-- Exa's voice session. Its own task, shown over the lock screen,
+             and the target of the "Digital assistant app" role: ASSIST is
+             what the side button and the corner swipe send. -->
+        <activity
+            android:name=".voice.VoiceActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.brightforge.exa.voice"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/NormalTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <meta-data
+                android:name="com.android.systemui.action_assist_icon"
+                android:resource="@mipmap/ic_launcher"/>
+        </activity>
         <activity
             android:name=".overlay.ProjectionConsentActivity"
             android:exported="false"
@@ -301,6 +328,11 @@
              on-device recognition service -->
         <intent>
             <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <!-- Required on Android 11+ for text-to-speech (Exa reading its
+             replies aloud) to find the phone's speech engine. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
         <!-- Package visibility for the WhatsApp hand-off (send_whatsapp
              opens the chat with the message typed in; "is it installed?"

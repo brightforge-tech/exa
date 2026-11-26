@@ -43,6 +43,22 @@ data class WidgetTask(
 
 data class WidgetReminder(val title: String, val at: ZonedDateTime)
 
+/**
+ * One card from today's planning board: something the user set aside time
+ * for. [done] follows the item behind the card (a completed task, a fired
+ * reminder) the same way the board itself does.
+ */
+data class WidgetPlanItem(
+    val title: String,
+    val start: ZonedDateTime,
+    val durationMinutes: Int,
+    val done: Boolean,
+    val skipped: Boolean,
+    val kind: String,
+) {
+    val end: ZonedDateTime get() = start.plusMinutes(durationMinutes.toLong())
+}
+
 /** Everything one widget redraw shows, read in one pass. */
 data class BriefingSnapshot(
     val now: ZonedDateTime,
@@ -63,7 +79,13 @@ data class BriefingSnapshot(
     val upcomingReminders: List<WidgetReminder>,
     val pendingApprovals: Int,
     val overlaps: Int,
+    /** Today's planning board, by start time. */
+    val plannedToday: List<WidgetPlanItem> = emptyList(),
 ) {
+    /** Planned items not yet done or skipped. */
+    val planLeft: List<WidgetPlanItem>
+        get() = plannedToday.filter { !it.done && !it.skipped }
+
     val endOfDay: ZonedDateTime get() = now.toLocalDate().plusDays(1).atStartOfDay(now.zone)
 
     val remindersToday: List<WidgetReminder>
@@ -86,7 +108,7 @@ data class BriefingSnapshot(
     companion object {
         fun empty(now: ZonedDateTime, ownerFirstName: String?) = BriefingSnapshot(
             now, ownerFirstName, emptyList(), emptyList(), null, emptyList(),
-            emptyList(), 0, 0, emptyList(), 0, 0,
+            emptyList(), 0, 0, emptyList(), 0, 0, emptyList(),
         )
     }
 }
@@ -266,6 +288,12 @@ object BriefingReader {
             0 // Older database without the table.
         }
 
+        val planned = try {
+            readPlan(db, today, zone)
+        } catch (_: SQLiteException) {
+            emptyList() // Older database without the planning board.
+        }
+
         return BriefingSnapshot(
             now = now,
             ownerFirstName = owner,
@@ -279,7 +307,54 @@ object BriefingReader {
             upcomingReminders = reminders,
             pendingApprovals = approvals,
             overlaps = countOverlaps(todayEvents.filter { !it.allDay }),
+            plannedToday = planned,
         )
+    }
+
+    /**
+     * Today's cards from the planning board (`day_plan_entries`). A card
+     * backed by a task or a reminder takes its title and done-ness from that
+     * item, as the board does, so finishing the task anywhere ticks it here.
+     */
+    private fun readPlan(db: SQLiteDatabase, today: LocalDate, zone: ZoneId): List<WidgetPlanItem> {
+        val items = mutableListOf<WidgetPlanItem>()
+        db.rawQuery(
+            """
+            SELECT e.title, e.start_minute, e.duration_minutes, e.status,
+                   e.source_type, t.title, t.status, r.title, r.status
+            FROM day_plan_entries e
+            LEFT JOIN tasks t ON e.source_type = 'task' AND t.id = e.source_id
+            LEFT JOIN reminders r ON e.source_type = 'reminder' AND r.id = e.source_id
+            WHERE e.plan_date = ?
+            ORDER BY e.start_minute ASC, e.created_at ASC
+            """.trimIndent(),
+            arrayOf(today.toString()),
+        ).use { c ->
+            while (c.moveToNext()) {
+                val kind = c.getString(4) ?: "note"
+                val status = c.getString(3) ?: "planned"
+                val title = when (kind) {
+                    "task" -> c.getString(5)
+                    "reminder" -> c.getString(7)
+                    else -> null
+                } ?: c.getString(0) ?: continue
+                val done = when (kind) {
+                    "task" -> c.getString(6).let { it == "Completed" || it == "Canceled" }
+                    "reminder" -> c.getString(8).let { it != null && it != "Active" }
+                    else -> status == "done"
+                }
+                val minute = c.getInt(1).coerceIn(0, 24 * 60 - 1)
+                items += WidgetPlanItem(
+                    title = title,
+                    start = today.atStartOfDay(zone).plusMinutes(minute.toLong()),
+                    durationMinutes = c.getInt(2).coerceAtLeast(5),
+                    done = done,
+                    skipped = status == "skipped",
+                    kind = kind,
+                )
+            }
+        }
+        return items
     }
 
     /** Pairs of timed events that share any minute. */

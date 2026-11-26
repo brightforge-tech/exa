@@ -369,6 +369,59 @@ class InboundMessageRepository {
     return rows.map(InboundMessage.fromRow).toList();
   }
 
+  /// Messages matching every filter given, newest first: [channel], a time
+  /// window on when the message was sent ([since] inclusive, [until]
+  /// exclusive - capture time when the app reported none), and [terms], of
+  /// which ANY may appear in the body, the sender or the chat name.
+  ///
+  /// Any-term rather than whole-phrase because the question is put in the
+  /// user's words ("the event today") and the message in someone else's
+  /// ("offsite Thursday 3pm"): a phrase match finds nothing, which is what
+  /// made "search my Teams chats for an event" come back empty.
+  Future<List<InboundMessage>> find({
+    String? channel,
+    List<String> terms = const [],
+    DateTime? since,
+    DateTime? until,
+    int limit = 40,
+  }) async {
+    final where = <String>[];
+    final args = <Object?>[];
+    if (channel != null) {
+      where.add('channel = ?');
+      args.add(channel);
+    }
+    if (since != null) {
+      where.add('COALESCE(sent_at, created_at) >= ?');
+      args.add(since.toIso8601String());
+    }
+    if (until != null) {
+      where.add('COALESCE(sent_at, created_at) < ?');
+      args.add(until.toIso8601String());
+    }
+    final needles = [
+      for (final term in terms)
+        if (term.trim().isNotEmpty) '%${term.trim().toLowerCase()}%',
+    ];
+    if (needles.isNotEmpty) {
+      where.add('(${[
+        for (final _ in needles)
+          "(LOWER(body) LIKE ? OR LOWER(COALESCE(sender, '')) LIKE ? "
+              "OR LOWER(COALESCE(conversation_title, '')) LIKE ?)",
+      ].join(' OR ')})');
+      for (final needle in needles) {
+        args.addAll([needle, needle, needle]);
+      }
+    }
+    final rows = await _database.db.rawQuery(
+      'SELECT * FROM inbound_messages'
+      '${where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}'}'
+      ' ORDER BY COALESCE(sent_at, created_at) DESC LIMIT ?',
+      [...args, limit],
+    );
+    return withMedia(rows.map(InboundMessage.fromRow).toList());
+  }
+
   Future<List<InboundMessage>> addedSince(DateTime since) async {
     final rows = await _database.db.query(
       'inbound_messages',

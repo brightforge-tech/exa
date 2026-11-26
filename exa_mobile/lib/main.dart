@@ -17,6 +17,7 @@ import 'device/device_bridge.dart';
 import 'device/device_owner_backend.dart';
 import 'job_service_main.dart';
 import 'overlay_main.dart';
+import 'voice_main.dart' as voice;
 import 'services/background_jobs/background_worker.dart';
 import 'services/background_jobs/brief_alarm.dart';
 import 'services/calendar/calendar_sync_service.dart';
@@ -37,6 +38,15 @@ const overlayEntrypoint = overlayMain;
 /// Keeps the job service's entry point in the compiled app, for the same
 /// reason: `ExaJobService` looks `jobServiceMain` up by name.
 const jobServiceEntrypoint = jobServiceMain;
+
+/// The voice session's entry point (`VoiceActivity`).
+///
+/// It has to live here, in the main library: an activity's engine is started
+/// through a FlutterEngineGroup, which looks the function up in main.dart
+/// and ignores any other library - a `voiceMain` only in voice_main.dart was
+/// "Could not resolve main entrypoint function" and a splash screen forever.
+@pragma('vm:entry-point')
+Future<void> voiceMain() => voice.voiceMain();
 
 /// Shown when startup failed before the app could exist. Deliberately plain -
 /// no theme, no providers, nothing that could itself fail here.

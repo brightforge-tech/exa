@@ -42,6 +42,7 @@ object BriefingWidget {
     const val TAB_EVENTS = 1
     const val TAB_TASKS = 2
     const val TAB_NUDGES = 3
+    const val TAB_PLANNED = 4
 
     private val worker = Executors.newSingleThreadExecutor()
 
@@ -212,10 +213,11 @@ object BriefingWidget {
         dot(v, R.id.tile_nudges_dot, if (remindersToday > 0) "amber" else "muted")
 
         // Tabs.
-        tabLabel(v, R.id.tab_all, "All Glance", tab == TAB_ALL)
+        tabLabel(v, R.id.tab_all, "Glance", tab == TAB_ALL)
         tabLabel(v, R.id.tab_events, "Events ($eventsToday)", tab == TAB_EVENTS)
         tabLabel(v, R.id.tab_tasks, "Tasks (${s.focusTasks.size})", tab == TAB_TASKS)
         tabLabel(v, R.id.tab_nudges, "Nudges ($remindersToday)", tab == TAB_NUDGES)
+        tabLabel(v, R.id.tab_planned, "Plan (${s.planLeft.size})", tab == TAB_PLANNED)
 
         // Content for the chosen tab, sized to the space the launcher gave.
         val height = heightDp(manager, widgetId)
@@ -250,6 +252,7 @@ object BriefingWidget {
         v.setOnClickPendingIntent(R.id.tab_events, tabIntent(context, widgetId, TAB_EVENTS))
         v.setOnClickPendingIntent(R.id.tab_tasks, tabIntent(context, widgetId, TAB_TASKS))
         v.setOnClickPendingIntent(R.id.tab_nudges, tabIntent(context, widgetId, TAB_NUDGES))
+        v.setOnClickPendingIntent(R.id.tab_planned, tabIntent(context, widgetId, TAB_PLANNED))
         return v
     }
 
@@ -407,6 +410,46 @@ object BriefingWidget {
                 if (s.otherTasks.isNotEmpty()) rows += Row("Other open tasks", header = true)
                 for (t in s.otherTasks) {
                     rows += Row(title = t.title, sub = taskLine(t, s, time))
+                }
+            }
+            TAB_PLANNED -> {
+                route = "/plan"
+                empty = "Nothing planned for today. Ask Exa to plan your day, " +
+                    "or drag tasks onto the board."
+                val left = s.plannedToday.filter { !it.done && !it.skipped }
+                val finished = s.plannedToday.filter { it.done || it.skipped }
+                if (left.isNotEmpty()) rows += Row("Still to do", header = true)
+                for (p in left) {
+                    val now = !p.start.isAfter(s.now) && p.end.isAfter(s.now)
+                    val late = !p.end.isAfter(s.now)
+                    rows += Row(
+                        title = p.title,
+                        sub = when {
+                            now -> "Now • until ${p.end.format(time)}"
+                            late -> "Was planned for ${p.start.format(time)}"
+                            else -> "${durationText(Duration.ofMinutes(p.durationMinutes.toLong()))}" +
+                                when (p.kind) {
+                                    "task" -> " • task"
+                                    "reminder" -> " • reminder"
+                                    else -> ""
+                                }
+                        },
+                        meta = p.start.format(time),
+                        dot = when {
+                            now -> "green"
+                            late -> "red"
+                            else -> "lavender"
+                        },
+                    )
+                }
+                if (finished.isNotEmpty()) rows += Row("Done", header = true)
+                for (p in finished) {
+                    rows += Row(
+                        title = p.title,
+                        sub = if (p.skipped) "Skipped" else "Done",
+                        meta = p.start.format(time),
+                        dot = "muted",
+                    )
                 }
             }
             else -> {
@@ -716,7 +759,7 @@ object BriefingWidget {
     private fun rowTemplate(context: Context, widgetId: Int, route: String): PendingIntent =
         PendingIntent.getActivity(
             context,
-            requestCode(widgetId, 15),
+            requestCode(widgetId, 16),
             Intent(context, MainActivity::class.java)
                 .putExtra("exa_route", route)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
@@ -742,7 +785,8 @@ object BriefingWidget {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    private fun requestCode(widgetId: Int, slot: Int) = 0x5000 + widgetId * 16 + slot
+    /** Slots 0-16 are in use (tabs take 11-15), so each widget owns 32. */
+    private fun requestCode(widgetId: Int, slot: Int) = 0x5000 + widgetId * 32 + slot
 
     // ------------------------------------------------------------ refreshing
 

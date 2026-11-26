@@ -24,6 +24,7 @@ import '../features/settings/jobs_screen.dart';
 import '../features/settings/mail_accounts_screen.dart';
 import '../features/settings/memory_screen.dart';
 import '../features/settings/overlay_settings_screen.dart';
+import '../features/settings/voice_settings_screen.dart';
 import '../features/settings/pending_approvals_screen.dart';
 import '../features/settings/permissions_screen.dart';
 import '../features/settings/phone_access_screen.dart';
@@ -156,6 +157,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 GoRoute(
                   path: 'memory',
                   builder: (context, state) => const MemoryScreen(),
+                ),
+                GoRoute(
+                  path: 'voice',
+                  builder: (context, state) => const VoiceSettingsScreen(),
                 ),
                 GoRoute(
                   path: 'overlay',
